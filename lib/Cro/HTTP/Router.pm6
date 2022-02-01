@@ -33,6 +33,10 @@ class X::Cro::HTTP::Router::NoRequestBodyMatch is Exception {
     }
 }
 
+role SwitchedImplementation {
+  has $.active is rw = True;
+}
+
 class X::Cro::HTTP::Router::ConfusedCapture is Exception {
     has $.body;
     has $.content-type;
@@ -137,8 +141,65 @@ module Cro::HTTP::Router {
         my class RouteHandler does Handler {
             has Str $.method;
             has &.implementation;
+            has $.objectid;
+            has @.nodes;
             has Hash[Array, Cro::HTTP::Router::PluginKey] $.plugin-config;
             has Hash[Array, Cro::HTTP::Router::PluginKey] $.flattened-plugin-config;
+
+            submethod TWEAK {
+                use nqp;
+
+                &!implementation does SwitchedImplementation;
+
+                @!nodes = @!prefix.map({ [ 'prefix', $_ ] });
+                for &!implementation.signature.params {
+                    my $type = do {
+                        when Auth   { 'auth'   }
+                        when Query  { 'query'  }
+                        when Cookie { 'cookie' }
+                        when Header { 'header' }
+
+                        default     { Nil      }
+                    }
+                    if $type {
+                        @!nodes.push: [ $type, .name ];
+                        next;
+                    }
+
+                    if .name {
+                        @!nodes.push: [
+                            .named ?? 'query' !! 'variable',
+                            .name
+                        ];
+                        next;
+                    }
+
+                    @!nodes.push: [ 'constant', .constraint_list[0] ];
+                }
+
+                # A ['variable', $_] node at the tail is a dummy entry.
+                # Remove it.
+                @!nodes.pop if ( @!nodes.tail[0] // '' ) eq 'variable' &&
+                               ( @!nodes.tail[1] // '' ) eq '$_';
+
+                # my $ns = @!nodes.gist;
+                # my $b = Buf.allocate(128);
+                # $b.subbuf-rw(0, $ns.chars) = $ns.encode;
+                #
+                # my $hash = do {
+                #   use Digest::MD5;
+                #   Digest::MD5::md5($b);
+                # }
+
+                $!objectid = do {
+                  use LibUUID;
+                  UUID.new;
+                }
+            }
+
+            method active     { &!implementation.active         }
+            method activate   { &!implementation.active = True  }
+            method deactivate { &!implementation.active = False }
 
             method copy-adding(:@prefix, :@body-parsers!, :@body-serializers!, :@before-matched!, :@after-matched!, :@around!,
                                Hash[Array, Cro::HTTP::Router::PluginKey] :$plugin-config) {
@@ -198,7 +259,8 @@ module Cro::HTTP::Router {
                     {
                         my $log-timeline-task = $request.annotations<log-timeline>;
                         my $callback = -> {
-                            &!implementation(|$args);
+                            &!implementation.active ?? &!implementation(|$args)
+                                                    !! not-found
                         }
                         for @!around.reverse -> $around {
                             $callback = -> $fn { -> { $around($fn) } }($callback);
@@ -283,6 +345,7 @@ module Cro::HTTP::Router {
         has Handler @.handlers;
         has Cro::BodyParser @.body-parsers;
         has Cro::BodySerializer @.body-serializers;
+        #has %!handler-access;
         has @.includes;
         has @.before;
         has @.after;
@@ -353,10 +416,35 @@ module Cro::HTTP::Router {
             }
         }
 
+        # method get-handler ($objectid) {
+        #   say "$objectid:";
+        #   say "\t{ .key }: { .value.nodes.gist }" for %!handler-access.pairs;
+        #   my $h = %!handler-access{$objectid};
+        #   return $h if $h;
+        #
+        #   for @!includes {
+        #     say "Prefix: { .<prefix> }";
+        #     $h = .<includee>.get-handler($objectid);
+        #     return $h if $h;
+        #   }
+        #   Nil;
+        # }
+
         method add-handler(Str $method, &implementation --> Nil) {
+            my $new-handler = RouteHandler.new(
+                :$method,
+                :&implementation,
+                :@!before-matched,
+                :@!after-matched,
+                :@!around,
+                :%!plugin-config
+            );
+
+            my $w := $new-handler.objectid;
+            #say "Adding { $method } handler { $w }...";
+            #%!handler-access{ $new-handler.objectid } = $new-handler;
             @!handlers-to-add.push: {
-                @!handlers.push(RouteHandler.new(:$method, :&implementation, :@!before-matched, :@!after-matched,
-                        :@!around, :%!plugin-config));
+                @!handlers.push($new-handler);
             }
         }
 
