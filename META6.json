@@ -1,7 +1,8 @@
 {
   "name": "Cro::HTTP",
   "description": "Asynchronous HTTP, both client and server side. Includes HTTP/2.0 support.",
-  "version": "0.8.7",
+  "version": "0.8.8",
+  "auth": "zef:cro",
   "perl": "6.*",
   "authors": [
     "Jonathan Worthington <jnthn@jnthn.net>"
@@ -11,9 +12,9 @@
     "OO::Monitors",
     "IO::Path::ChildSecure",
     "Base64",
-    "HTTP::HPACK",
-    "Cro::Core:ver<0.8.7>",
-    "Cro::TLS:ver<0.8.7>",
+    "HTTP::HPACK:ver<1.0.0>",
+    "Cro::Core:ver<0.8.8>",
+    "Cro::TLS:ver<0.8.8>",
     "JSON::Fast",
     "Crypt::Random",
     "JSON::JWT",
