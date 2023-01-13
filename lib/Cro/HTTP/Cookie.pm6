@@ -125,7 +125,8 @@ class Cro::HTTP::Cookie::CookieBuilder {
 #| back by the client
 class Cro::HTTP::Cookie {
     has CookieName $.name is required;
-    has CookieValue $.value is required;
+    #has CookieValue $.value is required;
+    has             $.value is required;
     has DateTime $.expires;
     has Duration $.max-age;
     has Domain $.domain;
@@ -152,11 +153,17 @@ class Cro::HTTP::Cookie {
         DateTime.new(.Str, formatter => $rfc1123-format);
     }
 
-    submethod BUILD(:$!name, :$!value,
+    submethod BUILD(:$!name, :$value,
                     :$!expires=Nil, :$!max-age=Nil,
                     :$!domain=Nil,:$!path=Nil,
                     :$!secure=False, :$!http-only=False,
-                    :$!same-site=Nil, :%!extensions) {};
+                    :$!same-site=Nil, :%!extensions)
+    {
+       warn "{ $value } does not match <cookie-value>!"
+        unless $value ~~ / <cookie-value> /;
+
+       $!value = $value;
+    };
 
     #| Turns the cookie information into a value to used in a Set-cookie header
     method to-set-cookie(--> Str) {
