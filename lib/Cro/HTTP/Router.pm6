@@ -1,3 +1,5 @@
+use LibUUID;
+
 use Cro;
 use Cro::BodyParser;
 use Cro::BodyParserSelector;
@@ -36,6 +38,8 @@ class X::Cro::HTTP::Router::NoRequestBodyMatch is Exception {
 role SwitchedImplementation {
   has $.active is rw = True;
 }
+
+my %request-handlers;
 
 class X::Cro::HTTP::Router::ConfusedCapture is Exception {
     has $.body;
@@ -147,9 +151,8 @@ module Cro::HTTP::Router {
             has Hash[Array, Cro::HTTP::Router::PluginKey] $.flattened-plugin-config;
 
             submethod TWEAK {
-                use nqp;
-
-                &!implementation does SwitchedImplementation;
+                &!implementation does SwitchedImplementation
+                  unless &!implementation ~~ SwitchedImplementation;
 
                 @!nodes = @!prefix.map({ [ 'prefix', $_ ] });
                 for &!implementation.signature.params {
@@ -182,19 +185,40 @@ module Cro::HTTP::Router {
                 @!nodes.pop if ( @!nodes.tail[0] // '' ) eq 'variable' &&
                                ( @!nodes.tail[1] // '' ) eq '$_';
 
-                # my $ns = @!nodes.gist;
-                # my $b = Buf.allocate(128);
-                # $b.subbuf-rw(0, $ns.chars) = $ns.encode;
-                #
-                # my $hash = do {
-                #   use Digest::MD5;
-                #   Digest::MD5::md5($b);
-                # }
-
                 $!objectid = do {
-                  use LibUUID;
+
                   UUID.new;
                 }
+            }
+
+            method name {
+              return 'UNKNOWN IMPLEMENTATION TYPE'
+                unless &!implementation ~~ (Block, Sub, Method).any;
+
+              my $name;
+              given &!implementation {
+                $name = 'Block(' ~ (
+                    |@!nodes.map({
+                      .[0] eq <prefix constant>.any
+                          ?? qq«\"{ .[1] }\"»
+                          !! ( .[0] eq 'query' ?? ':' !! '' ) ~ .[1]
+                    })
+                ).join(', ') ~ ')' if $_ ~~ Block;
+
+                $name = &!implementation.package ~ '::' ~
+                        &!implementation.name
+                if $_ ~~ (Method, Sub).any;
+
+                my $file = .?file // '?';
+                if $file ~~ / '(' ( (\w+)* % '::' ) ')'/ {
+                  $file = $0.Str;
+                } elsif $file.starts-with('/') {
+                  $file = $file.IO.basename;
+                }
+
+                $name ~= '@' ~ $file ~ ':' ~ ( .?line // '?' )
+              }
+              $name;
             }
 
             method active     { &!implementation.active         }
@@ -286,6 +310,7 @@ module Cro::HTTP::Router {
                             }
                         }
                     }
+                    $response.handler-used = self;
                     $response.status //= 204;
                     # Close push promises as we don't get a new ones
                     $response.close-push-promises();
@@ -345,7 +370,6 @@ module Cro::HTTP::Router {
         has Handler @.handlers;
         has Cro::BodyParser @.body-parsers;
         has Cro::BodySerializer @.body-serializers;
-        #has %!handler-access;
         has @.includes;
         has @.before;
         has @.after;
@@ -416,19 +440,11 @@ module Cro::HTTP::Router {
             }
         }
 
-        # method get-handler ($objectid) {
-        #   say "$objectid:";
-        #   say "\t{ .key }: { .value.nodes.gist }" for %!handler-access.pairs;
-        #   my $h = %!handler-access{$objectid};
-        #   return $h if $h;
-        #
-        #   for @!includes {
-        #     say "Prefix: { .<prefix> }";
-        #     $h = .<includee>.get-handler($objectid);
-        #     return $h if $h;
-        #   }
-        #   Nil;
-        # }
+        method get-handler ($objectid) {
+          my $h = %request-handlers{$objectid};
+          return $h if $h;
+          Nil;
+        }
 
         method add-handler(Str $method, &implementation --> Nil) {
             my $new-handler = RouteHandler.new(
@@ -440,12 +456,7 @@ module Cro::HTTP::Router {
                 :%!plugin-config
             );
 
-            my $w := $new-handler.objectid;
-            #say "Adding { $method } handler { $w }...";
-            #%!handler-access{ $new-handler.objectid } = $new-handler;
-            @!handlers-to-add.push: {
-                @!handlers.push($new-handler);
-            }
+            @!handlers-to-add.push: { @!handlers.push($new-handler) }
         }
 
         method add-body-parser(Cro::BodyParser $parser --> Nil) {
@@ -507,8 +518,10 @@ module Cro::HTTP::Router {
             }
             for @!includes -> (:@prefix, :$includee) {
                 for $includee.handlers() {
-                    @!handlers.push: .copy-adding(:@prefix, :@!body-parsers, :@!body-serializers,
-                        :@!before-matched, :@!after-matched, :@!around, :%!plugin-config);
+                  my $h = .copy-adding(:@prefix, :@!body-parsers, :@!body-serializers,
+                      :@!before-matched, :@!after-matched, :@!around, :%!plugin-config);
+                  %request-handlers{ $h.objectid } = $h;
+                  @!handlers.push: $h;
                 }
             }
             self!generate-route-matcher();
