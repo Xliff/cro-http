@@ -69,6 +69,9 @@ class Cro::HTTP::Response does Cro::HTTP::Message {
     #| The HTTP request that this is a response to
     has Cro::HTTP::Request $.request is rw;
 
+    #| The Cro::Router::RequestHandler used
+    has $.handler-used is rw;
+
     #| The HTTP status code of the response
     has StatusCode $.status is rw;
 
