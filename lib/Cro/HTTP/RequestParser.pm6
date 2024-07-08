@@ -51,6 +51,12 @@ class Cro::HTTP::RequestParser does Cro::Transform {
             fresh-message;
 
             whenever $in -> Cro::TCP::Message $packet {
+                sub origin {
+                  $packet.connection
+                    ?? " from { $packet.connection.peer-host }"
+                    !! ''
+                }
+
                 $header-decoder.add-bytes($packet.data) unless $expecting == Body;
                 loop {
                     $_ = $expecting;
@@ -68,20 +74,31 @@ class Cro::HTTP::RequestParser does Cro::Transform {
                         # redirect. Should not try to fix it "in stream". For
                         # now, simply reject it.
                         my @parts = $req-line.split(' ');
-                        bad-request('Malformed request line') unless @parts == 3;
+
+                        bad-request( 'Malformed request line' ~ origin() )
+                          unless @parts == 3;
 
                         # Validate.
-                        not-implemented('Unsupported method ' ~ @parts[0])
-                            unless %!allowed-methods{@parts[0]}:exists;
+                        not-implemented(
+                          'Unsupported method ' ~ @parts[0] ~ origin()
+                        ) unless %!allowed-methods{@parts[0]}:exists;
                         my $version-part := @parts[2];
                         if $version-part ne 'HTTP/1.1' && $version-part ne 'HTTP/1.0' {
                             if @parts[2].match(/^'HTTP/'(\d)'.'(\d)$/) -> $ver {
                                 unless $ver[0] eq '1' {
-                                    not-implemented('Unsupported HTTP version ' ~ ~$ver);
+                                    not-implemented(
+                                      [~](
+                                        'Unsupported HTTP version ',
+                                        ~$ver,
+                                        origin()
+                                      )
+                                    );
                                 }
                             }
                             else {
-                                bad-request('Malformed HTTP version');
+                                bad-request(
+                                  'Malformed HTTP version' ~ origin()
+                                );
                             }
                         }
 
@@ -132,7 +149,7 @@ class Cro::HTTP::RequestParser does Cro::Transform {
                             $request.append-header(Cro::HTTP::Header.parse($header-line));
                             CATCH {
                                 default {
-                                    bad-request('Malformed header');
+                                    bad-request( 'Malformed header' ~ origin() );
                                 }
                             }
                         }
