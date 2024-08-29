@@ -154,41 +154,8 @@ module Cro::HTTP::Router {
                 &!implementation does SwitchedImplementation
                   unless &!implementation ~~ SwitchedImplementation;
 
-                @!nodes = @!prefix.map({ [ 'prefix', $_ ] });
-                for &!implementation.signature.params {
-                    my $type = do {
-                        when Auth   { 'auth'   }
-                        when Query  { 'query'  }
-                        when Cookie { 'cookie' }
-                        when Header { 'header' }
-
-                        default     { Nil      }
-                    }
-                    if $type {
-                        @!nodes.push: [ $type, .name ];
-                        next;
-                    }
-
-                    if .name {
-                        @!nodes.push: [
-                            .named ?? 'query' !! 'variable',
-                            .name
-                        ];
-                        next;
-                    }
-
-                    @!nodes.push: [ 'constant', .constraint_list[0] ];
-                }
-
-                # A ['variable', $_] node at the tail is a dummy entry.
-                # Remove it.
-                @!nodes.pop if ( @!nodes.tail[0] // '' ) eq 'variable' &&
-                               ( @!nodes.tail[1] // '' ) eq '$_';
-
-                $!objectid = do {
-
-                  UUID.new;
-                }
+                @!nodes    = build-nodes(@!prefix, &!implementation);
+                $!objectid = UUID.new;
             }
 
             method name {
@@ -1593,4 +1560,40 @@ module Cro::HTTP::Router {
             Nil
         }
     }
+}
+
+sub build-nodes (@prefix, &sub) is export {
+  my $nodes = @prefix.map({ [ 'prefix', $_ ] }).Array;
+
+  for &sub.signature.params {
+      my $type = do {
+          when Auth   { 'auth'   }
+          when Query  { 'query'  }
+          when Cookie { 'cookie' }
+          when Header { 'header' }
+
+          default     { Nil      }
+      }
+      if $type {
+          $nodes.push: [ $type, .name ];
+          next;
+      }
+
+      if .name {
+          $nodes.push: [
+              .named ?? 'query' !! 'variable',
+              .name
+          ];
+          next;
+      }
+
+      $nodes.push: [ 'constant', .constraint_list[0] ];
+  }
+
+  # A ['variable', $_] node at the tail is a dummy entry.
+  # Remove it.
+  $nodes.pop if ( @!nodes.tail[0] // '' ) eq 'variable' &&
+                ( @!nodes.tail[1] // '' ) eq '$_';
+
+  $nodes;
 }
