@@ -30,12 +30,15 @@ class Cro::Uri::HTTP is Cro::Uri does Cro::ResourceIdentifier::HTTP {
         }
     }
 
-    method parse-request-target(Str() $target) {
+    method parse-request-target(Str() $target, :$origin) {
         with Parser.parse($target, :actions(Actions), :rule('request-target')) {
             .ast
         }
         else {
-            die X::Cro::Uri::ParseError.new(uri-string => $target)
+            die X::Cro::Uri::ParseError.new(
+              uri-string => $target
+              origin     => $origin
+            )
         }
     }
 }
