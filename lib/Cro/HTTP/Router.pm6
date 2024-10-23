@@ -41,6 +41,10 @@ role SwitchedImplementation {
 
 my %request-handlers;
 
+sub get-route-lookup-table is export {
+  %request-handlers.Map;
+}
+
 class X::Cro::HTTP::Router::ConfusedCapture is Exception {
     has $.body;
     has $.content-type;
@@ -53,20 +57,24 @@ class X::Cro::HTTP::Router::ConfusedCapture is Exception {
     }
 }
 
+my role Query  {}
+my role Header {}
+my role Cookie {}
+my role Auth   {}
+
 module Cro::HTTP::Router {
-    role Query {}
     multi trait_mod:<is>(Parameter:D $param, :$query! --> Nil) is export {
         $param does Query;
     }
-    role Header {}
+
     multi trait_mod:<is>(Parameter:D $param, :$header! --> Nil) is export {
         $param does Header;
     }
-    role Cookie {}
+
     multi trait_mod:<is>(Parameter:D $param, :$cookie! --> Nil) is export {
         $param does Cookie;
     }
-    role Auth {}
+
     multi trait_mod:<is>(Parameter:D $param, :$auth! --> Nil) is export {
         $param does Auth;
     }
@@ -166,9 +174,11 @@ module Cro::HTTP::Router {
               given &!implementation {
                 $name = 'Block(' ~ (
                     |@!nodes.map({
-                      .[0] eq <prefix constant>.any
-                          ?? qq«\"{ .[1] }\"»
-                          !! ( .[0] eq 'query' ?? ':' !! '' ) ~ .[1]
+                        .[0] eq <prefix constant>.any
+                            ?? qq«\"{ .[1] // '»unnamed«' }\"»
+                            !! (
+                                 ( .[0] // '' ) eq 'query' ?? ':' !! ''
+                               ) ~ .[1]
                     })
                 ).join(', ') ~ ')' if $_ ~~ Block;
 
@@ -480,15 +490,22 @@ module Cro::HTTP::Router {
                 add();
             }
             for @!handlers {
-                .body-parsers = @!body-parsers;
-                .body-serializers = @!body-serializers;
+              .body-parsers     = @!body-parsers;
+              .body-serializers = @!body-serializers;
             }
             for @!includes -> (:@prefix, :$includee) {
                 for $includee.handlers() {
-                  my $h = .copy-adding(:@prefix, :@!body-parsers, :@!body-serializers,
-                      :@!before-matched, :@!after-matched, :@!around, :%!plugin-config);
-                  %request-handlers{ $h.objectid } = $h;
-                  @!handlers.push: $h;
+                    my $h = .copy-adding(
+                        :@prefix,
+                        :@!body-parsers,
+                        :@!body-serializers,
+                        :@!before-matched,
+                        :@!after-matched,
+                        :@!around,
+                        :%!plugin-config
+                    );
+                    %request-handlers{ $h.objectid } = $h;
+                    @!handlers.push: $h;
                 }
             }
             self!generate-route-matcher();
@@ -851,7 +868,7 @@ module Cro::HTTP::Router {
                 $*CRO-ROUTE-SET.add-include([$prefix], $routes);
             }
             else {
-                die "Can only use 'include' with `route` block, not a $routes.^name()";
+                die "Can only use 'include' with `route` block, not a { $routes.^name() } at prefix { $prefix }";
             }
         }
     }
@@ -1563,7 +1580,7 @@ module Cro::HTTP::Router {
 }
 
 sub build-nodes (@prefix, &sub) is export {
-  my $nodes = @prefix.map({ [ 'prefix', $_ ] }).Array;
+  my @nodes = @prefix.map({ [ 'prefix', $_ ] });
 
   for &sub.signature.params {
       my $type = do {
@@ -1575,25 +1592,25 @@ sub build-nodes (@prefix, &sub) is export {
           default     { Nil      }
       }
       if $type {
-          $nodes.push: [ $type, .name ];
+          @nodes.push: [ $type, .name ];
           next;
       }
 
       if .name {
-          $nodes.push: [
+          @nodes.push: [
               .named ?? 'query' !! 'variable',
               .name
           ];
           next;
       }
 
-      $nodes.push: [ 'constant', .constraint_list[0] ];
+      @nodes.push: [ 'constant', .constraint_list[0] ];
   }
 
   # A ['variable', $_] node at the tail is a dummy entry.
   # Remove it.
-  $nodes.pop if ( @!nodes.tail[0] // '' ) eq 'variable' &&
-                ( @!nodes.tail[1] // '' ) eq '$_';
+  @nodes.pop if ( @nodes.tail[0] // '' ) eq 'variable' &&
+                ( @nodes.tail[1] // '' ) eq '$_';
 
-  $nodes;
+  @nodes;
 }
