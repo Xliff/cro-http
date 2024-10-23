@@ -36,7 +36,7 @@ class Cro::Uri::HTTP is Cro::Uri does Cro::ResourceIdentifier::HTTP {
         }
         else {
             die X::Cro::Uri::ParseError.new(
-              uri-string => $target
+              uri-string => $target,
               origin     => $origin
             )
         }
