@@ -130,7 +130,10 @@ class Cro::HTTP::Request does Cro::HTTP::Message {
 
     method !ensure-cached-uri(--> Nil) {
         if $!cached-uri-target ne $!target {
-            $!cached-uri = Cro::Uri::HTTP.parse-request-target($!target);
+            $!cached-uri = Cro::Uri::HTTP.parse-request-target(
+              $!target,
+              origin => $!connection.peer-host
+            );
             $!cached-uri-target = $!target;
         }
     }
