@@ -658,6 +658,8 @@ module Cro::HTTP::Router {
             # Turned nameds into unpacks.
             for @named -> $param {
                 my $target-name = $param.named_names[0];
+                next unless $target-name;
+                
                 my ($exists, $lookup) = do given $param {
                     when Cookie {
                         '$req.has-cookie(Q[' ~ $target-name ~ '])',
